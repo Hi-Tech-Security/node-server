@@ -10,10 +10,11 @@
     "test-laravel": "node mock-laravel.js"
   },
   "dependencies": {
-    "ws": "^8.14.2",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "ws": "^8.14.2"
   },
   "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10",
     "express": "^4.18.2"
   },
   "keywords": [

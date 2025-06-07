@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Server Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="style.css">
+    
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1 class="display-4">
+                    <i class="bi bi-speaker"></i> Audio Server Dashboard
+                </h1>
+                <p class="lead text-muted">Real-time monitoring and control</p>
+            </div>
+            <div class="col-auto">
+                <div id="connection-status" class="status-badge disconnected">
+                    <i class="bi bi-plug"></i> Disconnected
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Server Status Card -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-server"></i> Server Status
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="uptime">00:00:00</div>
+                                    <div class="stat-label">Uptime</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="clients-count">0</div>
+                                    <div class="stat-label">Active Clients</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Status</strong></td>
+                                        <td id="server-status">Loading...</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Start Time</strong></td>
+                                        <td id="start-time">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>ESP32</strong></td>
+                                        <td id="esp32-connection">Disconnected</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Streaming</strong></td>
+                                        <td id="streaming-status">Inactive</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Control Card -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <i class="bi bi-mic"></i> Audio Controls
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-center mb-3">
+                            <button id="listen-btn" class="btn btn-primary audio-control-btn me-2" disabled>
+                                <i class="bi bi-play-circle"></i> Start
+                            </button>
+                            <button id="stop-btn" class="btn btn-danger audio-control-btn" disabled>
+                                <i class="bi bi-stop-circle"></i> Stop
+                            </button>
+                        </div>
+                        
+                        <div id="audio-visualizer">
+                            <canvas id="audio-wave"></canvas>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <audio id="audio-player" controls class="w-100"></audio>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Event Log Card -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-dark text-white">
+                        <i class="bi bi-journal-text"></i> Event Log
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="p-3 border-bottom">
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary active" data-filter="all">All</button>
+                                <button class="btn btn-outline-secondary" data-filter="error">Errors</button>
+                                <button class="btn btn-outline-secondary" data-filter="info">Info</button>
+                                <button class="btn btn-outline-secondary" data-filter="warning">Warnings</button>
+                            </div>
+                            <button id="clear-logs" class="btn btn-sm btn-outline-danger float-end">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                        </div>
+                        <div id="event-log" style="height: 300px; overflow-y: auto;" class="p-3">
+                            <div class="text-muted text-center py-4">No events recorded yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connected Clients Card -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <i class="bi bi-pc-display"></i> Connected Clients
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="clients-table">
+                                    <tr>
+                                        <td colspan="2" class="text-center py-4">No clients connected</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // WebSocket connection
+        let ws;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 3000;
+        const token = "YOUR_TOKEN_HERE"; // Replace with actual token or fetch from API/login
+
+        // Audio visualization
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let canvasCtx;
+        let animationId;
+        let audioChart;
+
+        // Server stats
+        let serverStats = {
+            uptime: 0,
+            clients: 0,
+            esp32Connected: false,
+            streaming: false,
+            startTime: null
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initWebSocket();
+            initAudioVisualizer();
+            setupEventListeners();
+            updateUptimeDisplay();
+        });
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            ws = new WebSocket(`ws://localhost:3001?token=${token}`);
+
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+                updateConnectionStatus(true);
+                requestInitialData();
+                addLogEntry('Connected to WebSocket server', 'info');
+            };
+
+            ws.onmessage = function(event) {
+                if (typeof event.data === 'string') {
+                    const data = JSON.parse(event.data);
+                    console.log('Message received:', data);
+                    handleServerMessage(data);
+                } else {
+                    // Handle binary audio data
+                    handleAudioData(event.data);
+                }
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket disconnected ascyn');
+                updateConnectionStatus(false);
+                addLogEntry('WebSocket connection closed', 'error');
+
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                    setTimeout(initWebSocket, reconnectDelay);
+                } else {
+                    addLogEntry('Max reconnection attempts reached. Please refresh the page.', 'error');
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                addLogEntry('WebSocket error occurred', 'error');
+            };
+        }
+
+        // Initialize audio visualizer
+        function initAudioVisualizer() {
+            const canvas = document.getElementById('audio-wave');
+            canvasCtx = canvas.getContext('2d');
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            audioChart = new Chart(canvasCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 60}, (_, i) => i),
+                    datasets: [{
+                        data: Array(60).fill(0),
+                        borderColor: '#4e73df',
+                        borderWidth: 1,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: false
+                        },
+                        y: {
+                            display: false,
+                            min: 0,
+                            max: 256
+                        }
+                    }
+                }
+            });
+        }
+
+        // Setup UI event listeners
+        function setupEventListeners() {
+            document.getElementById('listen-btn').addEventListener('click', () => {
+                sendCommand('start-listening');
+            });
+
+            document.getElementById('stop-btn').addEventListener('click', () => {
+                sendCommand('stop-listening');
+            });
+
+            document.querySelectorAll('[data-filter]').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    filterLogs(this.getAttribute('data-filter'));
+                });
+            });
+
+            document.getElementById('clear-logs').addEventListener('click', () => {
+                document.getElementById('event-log').innerHTML = 
+                    '<div class="text-muted text-center py-4">No events recorded yet</div>';
+            });
+
+            window.addEventListener('resize', function() {
+                const canvas = document.getElementById('audio-wave');
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+            });
+        }
+
+        // Request initial data from server
+        function requestInitialData() {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'get-status', timestamp: Date.now() }));
+                ws.send(JSON.stringify({ type: 'get-clients', timestamp: Date.now() }));
+            }
+        }
+
+        // Send command to server
+        function sendCommand(command) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: command, timestamp: Date.now() }));
+                addLogEntry(`Sent command: ${command}`, 'info');
+            } else {
+                addLogEntry('Cannot send command - not connected to server', 'error');
+            }
+        }
+
+        // Handle incoming server messages
+        function handleServerMessage(data) {
+            switch (data.type) {
+                case 'status':
+                    updateServerStatus(data);
+                    break;
+                case 'client-list':
+                    updateClientsList(data.clients);
+                    break;
+                case 'streaming-status':
+                    updateStreamingStatus(data.streaming);
+                    addLogEntry(`Streaming ${data.streaming ? 'started' : 'stopped'}`, 'info');
+                    break;
+                case 'esp32-status':
+                    updateESP32Status(data.status);
+                    addLogEntry(`ESP32 status: ${data.status}`, 'info');
+                    break;
+                case 'command-sent':
+                    addLogEntry(`Command sent to ESP32: ${data.command}`, 'info');
+                    break;
+                case 'error':
+                    addLogEntry(data.message, 'error');
+                    break;
+                case 'server-shutdown':
+                    addLogEntry('Server is shutting down', 'error');
+                    updateConnectionStatus(false);
+                    document.getElementById('listen-btn').disabled = true;
+                    document.getElementById('stop-btn').disabled = true;
+                    break;
+                default:
+                    console.log('Unknown message type:', data.type);
+                    addLogEntry(`Unknown message type: ${data.type}`, 'warning');
+            }
+        }
+
+        // Update server status display
+        function updateServerStatus(data) {
+            serverStats = {
+                ...serverStats,
+                uptime: data.serverUptime,
+                clients: data.connectedClients,
+                esp32Connected: data.esp32Connected,
+                streaming: data.streaming,
+                startTime: data.serverTime
+            };
+
+            document.getElementById('server-status').textContent = 'Running';
+            document.getElementById('clients-count').textContent = data.connectedClients;
+            document.getElementById('esp32-connection').textContent = 
+                data.esp32Connected ? 'Connected' : 'Disconnected';
+            document.getElementById('esp32-connection').className = 
+                data.esp32Connected ? 'status-badge connected' : 'status-badge disconnected';
+            document.getElementById('streaming-status').textContent = 
+                data.streaming ? 'Active' : 'Inactive';
+            document.getElementById('streaming-status').className = 
+                data.streaming ? 'status-badge streaming' : 'status-badge';
+            document.getElementById('start-time').textContent = 
+                new Date(data.serverTime).toLocaleString();
+
+            document.getElementById('listen-btn').disabled = !data.esp32Connected;
+            document.getElementById('stop-btn').disabled = !data.esp32Connected;
+
+            if (data.streaming) {
+                document.getElementById('listen-btn').classList.remove('btn-primary');
+                document.getElementById('listen-btn').classList.add('btn-success');
+                document.getElementById('stop-btn').classList.remove('btn-danger');
+                document.getElementById('stop-btn').classList.add('btn-secondary');
+            } else {
+                document.getElementById('listen-btn').classList.add('btn-primary');
+                document.getElementById('listen-btn').classList.remove('btn-success');
+                document.getElementById('stop-btn').classList.add('btn-danger');
+                document.getElementById('stop-btn').classList.remove('btn-secondary');
+            }
+        }
+
+        // Update clients list
+        function updateClientsList(clients) {
+            const tbody = document.getElementById('clients-table');
+            if (clients.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2" class="text-center py-4">No clients connected</td></tr>';
+                return;
+            }
+            tbody.innerHTML = clients.map(client => `
+                <tr class="client-row">
+                    <td>${client.id}</td>
+                    <td>
+                        <span class="status-badge ${client.connected ? 'connected' : 'disconnected'}">
+                            ${client.connected ? 'Connected' : 'Disconnected'}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Update streaming status
+        function updateStreamingStatus(isStreaming) {
+            serverStats.streaming = isStreaming;
+            const statusEl = document.getElementById('streaming-status');
+            if (isStreaming) {
+                statusEl.textContent = 'Active';
+                statusEl.className = 'status-badge streaming';
+                document.getElementById('listen-btn').classList.add('active');
+                document.getElementById('stop-btn').classList.remove('active');
+            } else {
+                statusEl.textContent = 'Inactive';
+                statusEl.className = 'status-badge';
+                document.getElementById('listen-btn').classList.remove('active');
+                document.getElementById('stop-btn').classList.add('active');
+            }
+        }
+
+        // Update ESP32 connection status
+        function updateESP32Status(status) {
+            serverStats.esp32Connected = status.includes('Connected');
+            const statusEl = document.getElementById('esp32-connection');
+            statusEl.textContent = status.includes('Connected') ? 'Connected' : 'Disconnected';
+            statusEl.className = status.includes('Connected') ? 'status-badge connected' : 'status-badge disconnected';
+            document.getElementById('listen-btn').disabled = !status.includes('Connected');
+            document.getElementById('stop-btn').disabled = !status.includes('Connected');
+        }
+
+        // Handle audio data (placeholder)
+        function handleAudioData(data) {
+            // Note: Actual audio processing requires server to send metadata (format, sample rate, etc.)
+            // This is a placeholder using random data for visualization
+            if (audioChart) {
+                const newData = Array.from({length: 60}, () => Math.random() * 256);
+                audioChart.data.datasets[0].data = newData;
+                audioChart.update();
+            }
+            addLogEntry(`Received audio data: ${data.size} bytes`, 'info');
+        }
+
+        // Update connection status display
+        function updateConnectionStatus(isConnected) {
+            const statusEl = document.getElementById('connection-status');
+            if (isConnected) {
+                statusEl.textContent = 'Connected';
+                statusEl.className = 'status-badge connected';
+            } else {
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'status-badge disconnected';
+            }
+        }
+
+        // Add log entry
+        function addLogEntry(message, level = 'info') {
+            const logEl = document.getElementById('event-log');
+            const emptyMsg = logEl.querySelector('.text-muted');
+            if (emptyMsg) {
+                logEl.removeChild(emptyMsg);
+            }
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${level}`;
+            entry.innerHTML = `
+                <span class="text-muted">[${new Date().toLocaleTimeString()}]</span>
+                ${message}
+            `;
+            logEl.prepend(entry);
+            logEl.scrollTop = 0;
+        }
+
+        // Filter logs
+        function filterLogs(filter) {
+            const entries = document.querySelectorAll('.log-entry');
+            entries.forEach(entry => {
+                entry.style.display = filter === 'all' || entry.classList.contains(`log-${filter}`) ? 'block' : 'none';
+            });
+        }
+
+        // Update uptime display
+        function updateUptimeDisplay() {
+            serverStats.uptime++;
+            const hours = Math.floor(serverStats.uptime / 3600);
+            const minutes = Math.floor((serverStats.uptime % 3600) / 60);
+            const seconds = Math.floor(serverStats.uptime % 60);
+            document.getElementById('uptime').textContent = 
+                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            setTimeout(updateUptimeDisplay, 1000);
+        }
+
+        // Format bytes to human-readable string
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>

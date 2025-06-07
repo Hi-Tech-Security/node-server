@@ -1,0 +1,33 @@
+app = "quicknotify"
+kill_signal = "SIGINT"
+kill_timeout = 5
+
+[env]
+  ESP32_PORT = "3000"
+  APP_PORT = "3001"
+  DASHBOARD_PORT = "3002"
+  LARAVEL_BASE_URL = "https://quicknotify.live"
+  
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true  # Redirect HTTP to HTTPS
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 1000
+    soft_limit = 500
+
+  [[services.tcp_checks]]
+    interval = 10000
+    timeout = 2000
+    grace_period = "30s"
